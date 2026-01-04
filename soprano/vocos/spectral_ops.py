@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 
+
 class ISTFT(nn.Module):
     """
     Custom implementation of ISTFT since torch.istft doesn't allow custom padding (other than `center=True`) with
@@ -16,7 +17,14 @@ class ISTFT(nn.Module):
         padding (str, optional): Type of padding. Options are "center" or "same". Defaults to "same".
     """
 
-    def __init__(self, n_fft: int, hop_length: int, win_length: int, padding: str = "same"):
+    def __init__(
+        self,
+        n_fft: int,
+        hop_length: int,
+        win_length: int,
+        padding: str = "same",
+        dev: str = "cuda",
+    ):
         super().__init__()
         if padding not in ["center", "same"]:
             raise ValueError("Padding must be 'center' or 'same'.")
@@ -24,7 +32,7 @@ class ISTFT(nn.Module):
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.win_length = win_length
-        window = torch.hann_window(win_length).to('cuda')
+        window = torch.hann_window(win_length).to(dev)
         self.register_buffer("window", window)
 
     def forward(self, spec: torch.Tensor) -> torch.Tensor:
@@ -39,10 +47,19 @@ class ISTFT(nn.Module):
             Tensor: Reconstructed time-domain signal of shape (B, L), where L is the length of the output signal.
         """
         if self.padding == "center":
-            spec[:,0] = 0 # fixes some strange bug where first/last freqs don't matter when bs<16 which causes exploding gradients
-            spec[:,-1] = 0
+            spec[:, 0] = (
+                0  # fixes some strange bug where first/last freqs don't matter when bs<16 which causes exploding gradients
+            )
+            spec[:, -1] = 0
             # Fallback to pytorch native implementation
-            return torch.istft(spec, self.n_fft, self.hop_length, self.win_length, self.window, center=True)
+            return torch.istft(
+                spec,
+                self.n_fft,
+                self.hop_length,
+                self.win_length,
+                self.window,
+                center=True,
+            )
         elif self.padding == "same":
             pad = (self.win_length - self.hop_length) // 2
         else:
@@ -58,13 +75,19 @@ class ISTFT(nn.Module):
         # Overlap and Add
         output_size = (T - 1) * self.hop_length + self.win_length
         y = torch.nn.functional.fold(
-            ifft, output_size=(1, output_size), kernel_size=(1, self.win_length), stride=(1, self.hop_length),
+            ifft,
+            output_size=(1, output_size),
+            kernel_size=(1, self.win_length),
+            stride=(1, self.hop_length),
         )[:, 0, 0, pad:-pad]
 
         # Window envelope
         window_sq = self.window.square().expand(1, T, -1).transpose(1, 2)
         window_envelope = torch.nn.functional.fold(
-            window_sq, output_size=(1, output_size), kernel_size=(1, self.win_length), stride=(1, self.hop_length),
+            window_sq,
+            output_size=(1, output_size),
+            kernel_size=(1, self.win_length),
+            stride=(1, self.hop_length),
         ).squeeze()[pad:-pad]
 
         # Normalize

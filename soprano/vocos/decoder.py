@@ -15,6 +15,7 @@ class SopranoDecoder(nn.Module):
                  n_fft=2048,
                  upscale=4,
                  dw_kernel=3,
+                 dev: str = "cuda"
                 ):
         super().__init__()
         self.decoder_initial_channels = num_input_channels
@@ -35,7 +36,7 @@ class SopranoDecoder(nn.Module):
                                       )
         self.head = ISTFTHead(dim=self.dim,
                             n_fft=self.n_fft,
-                            hop_length=self.hop_length)
+                            hop_length=self.hop_length, dev=dev)
 
     def forward(self, x):
         T = x.size(2)
